@@ -12,7 +12,7 @@ const logger = createLogger('auth')
 // TODO: Provide a URL that can be used to download a certificate that can be used
 // to verify JWT token signature.
 // To get this URL you need to go to an Auth0 page -> Show Advanced Settings -> Endpoints -> JSON Web Key Set
-const jwksUrl = '...'
+const jwksUrl = 'https://dev-h72ydfr71scohpq6.us.auth0.com/.well-known/jwks.json'
 
 export const handler = async (
   event: CustomAuthorizerEvent
@@ -56,12 +56,32 @@ export const handler = async (
 
 async function verifyToken(authHeader: string): Promise<JwtPayload> {
   const token = getToken(authHeader)
+  // logger.info(`token: ${token}`);
   const jwt: Jwt = decode(token, { complete: true }) as Jwt
+  // logger.info(`jwt: ${jwt}`);
 
-  // TODO: Implement token verification
-  // You should implement it similarly to how it was implemented for the exercise for the lesson 5
-  // You can read more about how to do this here: https://auth0.com/blog/navigating-rs256-and-jwks/
-  return undefined
+  const res = await Axios.get(jwksUrl);
+  // logger.info(`res: ${res}`);
+  const keys = res.data.keys;
+  // logger.info(`keys: ${keys}`);
+  // logger.info(`jwt.header.kid: ${jwt.header.kid}`);
+  const signingKey = keys.find(key => key.kid === jwt.header.kid);
+  // logger.info(`signingKey: ${signingKey}`);
+
+  if (!signingKey) {
+    throw new Error(`Unable to find a signing key that matches '${jwt.header.kid}'`);
+  }
+
+  const pemData = signingKey.x5c[0];
+
+  const cert = createCert(pemData)
+
+  const verifiedToken = verify(token, cert, {
+    algorithms: ['RS256']
+  }) as JwtPayload;
+  logger.info('verifiedToken: ', verifiedToken);
+
+  return verifiedToken;
 }
 
 function getToken(authHeader: string): string {
@@ -74,4 +94,10 @@ function getToken(authHeader: string): string {
   const token = split[1]
 
   return token
+}
+
+function createCert(pemData) {
+  // var cert = pemData.match(/.{1,64}/g).join('\n');
+  const cert = `-----BEGIN CERTIFICATE-----\n${pemData}\n-----END CERTIFICATE-----\n`;
+  return cert;
 }
